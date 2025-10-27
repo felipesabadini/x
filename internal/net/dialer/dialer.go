@@ -155,33 +155,9 @@ func (d *Dialer) dialOnce(ctx context.Context, network, addr, ifceName string, i
 		return nil, fmt.Errorf("dial: unsupported network %s", network)
 	}
 
-	var localAddr net.Addr
+	localAddr := ifAddr
 	if ifAddr != nil && ifceName != "" {
-		// When binding to an interface, we need to use the IP from ifAddr
-		// but let the system choose an ephemeral port (port 0).
-		// The Control function below will handle binding to the interface.
-		switch addr := ifAddr.(type) {
-		case *net.TCPAddr:
-			localAddr = &net.TCPAddr{
-				IP:   addr.IP,
-				Port: 0, // Let system choose ephemeral port
-				Zone: addr.Zone,
-			}
-			log.Debugf("Binding to interface %s with IP %s (zone: %s)", ifceName, addr.IP, addr.Zone)
-		case *net.UDPAddr:
-			localAddr = &net.UDPAddr{
-				IP:   addr.IP,
-				Port: 0, // Let system choose ephemeral port
-				Zone: addr.Zone,
-			}
-			log.Debugf("Binding to interface %s with IP %s (zone: %s)", ifceName, addr.IP, addr.Zone)
-		default:
-			localAddr = ifAddr
-			log.Debugf("Using ifAddr as-is for interface %s: %s (type: %T)", ifceName, ifAddr, ifAddr)
-		}
-	} else {
-		localAddr = ifAddr
-		log.Debugf("No interface binding (ifAddr: %v, ifceName: %s)", localAddr, ifceName)
+		log.Debugf("Binding to interface %s with local address %s", ifceName, ifAddr)
 	}
 
 	netd := net.Dialer{

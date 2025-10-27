@@ -48,9 +48,6 @@ func ParseInterfaceAddr(ifceName, network string) (ifce string, addr []net.Addr,
 }
 
 func ipToAddr(ip net.IP, network string) (addr net.Addr) {
-	// Don't set Port field explicitly - let it be implicit zero
-	// Setting Port: 0 explicitly causes "no suitable address found" error
-	// when used with net.Dialer.LocalAddr
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		addr = &net.TCPAddr{IP: ip}
