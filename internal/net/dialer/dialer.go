@@ -111,6 +111,27 @@ func (d *Dialer) Dial(ctx context.Context, network, addr string) (conn net.Conn,
 	return
 }
 
+func getIPFromAddr(addr net.Addr) net.IP {
+	switch a := addr.(type) {
+	case *net.TCPAddr:
+		return a.IP
+	case *net.UDPAddr:
+		return a.IP
+	case *net.IPAddr:
+		return a.IP
+	default:
+		return nil
+	}
+}
+
+func getIPFromAddress(address string) net.IP {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil
+	}
+	return net.ParseIP(host)
+}
+
 func (d *Dialer) dialOnce(ctx context.Context, network, addr, ifceName string, ifAddr net.Addr, log logger.Logger) (net.Conn, error) {
 	if ifceName != "" {
 		log.Debugf("dial %s/%s via interface %s@%s", addr, network, ifceName, ifAddr)
@@ -155,9 +176,33 @@ func (d *Dialer) dialOnce(ctx context.Context, network, addr, ifceName string, i
 		return nil, fmt.Errorf("dial: unsupported network %s", network)
 	}
 
-	localAddr := ifAddr
-	if ifAddr != nil && ifceName != "" {
-		log.Debugf("Binding to interface %s with local address %s", ifceName, ifAddr)
+	// Determine if we should use LocalAddr
+	// Only use LocalAddr if the local and remote address families match
+	var localAddr net.Addr
+	if ifAddr != nil {
+		localIP := getIPFromAddr(ifAddr)
+		remoteIP := getIPFromAddress(addr)
+
+		// Only set LocalAddr if IP families match (both IPv4 or both IPv6)
+		if localIP != nil && remoteIP != nil {
+			localIsV4 := localIP.To4() != nil
+			remoteIsV4 := remoteIP.To4() != nil
+
+			if localIsV4 == remoteIsV4 {
+				localAddr = ifAddr
+				log.Debugf("Using LocalAddr %s for destination %s (IP families match)", ifAddr, addr)
+			} else {
+				log.Debugf("NOT using LocalAddr %s for destination %s (IPv%s != IPv%s), relying on SO_BINDTODEVICE only",
+					ifAddr, addr,
+					map[bool]string{true: "4", false: "6"}[localIsV4],
+					map[bool]string{true: "4", false: "6"}[remoteIsV4])
+			}
+		}
+	}
+	if localAddr != nil && ifceName != "" {
+		log.Debugf("Binding to interface %s with local address %s", ifceName, localAddr)
+	} else if ifceName != "" {
+		log.Debugf("Binding to interface %s without LocalAddr (using SO_BINDTODEVICE only)", ifceName)
 	}
 
 	netd := net.Dialer{
