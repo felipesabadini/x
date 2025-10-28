@@ -132,6 +132,34 @@ func getIPFromAddress(address string) net.IP {
 	return net.ParseIP(host)
 }
 
+// synthesizeNAT64Address converts IPv4 addresses to IPv6 using NAT64 prefix (64:ff9b::/96)
+// Example: 157.240.222.60 → 64:ff9b::9df0:de3c
+func synthesizeNAT64Address(addr string) (string, bool) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr, false
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return addr, false
+	}
+
+	ipv4 := ip.To4()
+	if ipv4 == nil {
+		return addr, false
+	}
+
+	nat64IP := net.IP{
+		0x00, 0x64, 0xff, 0x9b,
+		0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00,
+		ipv4[0], ipv4[1], ipv4[2], ipv4[3],
+	}
+
+	return net.JoinHostPort(nat64IP.String(), port), true
+}
+
 func (d *Dialer) dialOnce(ctx context.Context, network, addr, ifceName string, ifAddr net.Addr, log logger.Logger) (net.Conn, error) {
 	if ifceName != "" {
 		log.Debugf("dial %s/%s via interface %s@%s", addr, network, ifceName, ifAddr)
@@ -174,6 +202,18 @@ func (d *Dialer) dialOnce(ctx context.Context, network, addr, ifceName string, i
 	case "tcp", "tcp4", "tcp6":
 	default:
 		return nil, fmt.Errorf("dial: unsupported network %s", network)
+	}
+
+	// NAT64 synthesis: If we have IPv6 local address and IPv4 destination,
+	// synthesize the IPv4 address to IPv6 using NAT64 prefix (64:ff9b::/96)
+	if ifAddr != nil {
+		localIP := getIPFromAddr(ifAddr)
+		if localIP != nil && localIP.To4() == nil { // Local is IPv6
+			if synthesizedAddr, ok := synthesizeNAT64Address(addr); ok {
+				log.Debugf("Synthesized IPv4 address %s to NAT64 IPv6 %s", addr, synthesizedAddr)
+				addr = synthesizedAddr
+			}
+		}
 	}
 
 	// Determine if we should use LocalAddr
